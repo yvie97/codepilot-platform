@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Java / Maven
+target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Secrets / local config
+*.env
+.env
+
+# Large binary files (paper PDF lives outside the repo)
+*.pdf
+
+# macOS
+.DS_Store
