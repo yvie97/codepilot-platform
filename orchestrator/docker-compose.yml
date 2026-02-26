@@ -1,4 +1,6 @@
 services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     environment:
@@ -6,9 +8,51 @@ services:
       POSTGRES_USER:     codepilot
       POSTGRES_PASSWORD: codepilot
     ports:
-      - "5432:5432"
+      - "5432:5432"          # expose for local psql / debugging
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codepilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Python executor ─────────────────────────────────────────────────────────
+  executor:
+    build:
+      context: ../executor
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"          # expose for local curl / debugging
+    # /tmp is writable inside the container; workspaces live there
+    tmpfs:
+      - /tmp/codepilot-workspaces
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8001/workspace/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Java orchestrator ───────────────────────────────────────────────────────
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      # Override application.properties to use Docker service hostnames
+      SPRING_DATASOURCE_URL:      jdbc:postgresql://postgres:5432/codepilot
+      SPRING_DATASOURCE_USERNAME: codepilot
+      SPRING_DATASOURCE_PASSWORD: codepilot
+      CODEPILOT_EXECUTOR_BASE_URL: http://executor:8001
+      # Pass the Claude API key from the host shell environment
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      executor:
+        condition: service_healthy
 
 volumes:
   postgres_data:
