@@ -57,7 +57,7 @@ public class StepScheduler {
      * Each tick only claims ONE step. If there are multiple PENDING steps,
      * subsequent ticks (or other scheduler pods in K8s) will claim the rest.
      */
-    @Scheduled(fixedDelay = 2000)
+    @Scheduled(fixedDelay = 2_000)
     public void tick() {
         String workerId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
 
@@ -73,5 +73,20 @@ public class StepScheduler {
                     }
                 })
         );
+    }
+
+    /**
+     * Watchdog: detect and reset steps whose worker has silently crashed (§8.2).
+     *
+     * Runs every 60 seconds. Any RUNNING step with a heartbeat older than 5
+     * minutes is treated as stalled and reset to PENDING for retry.
+     */
+    @Scheduled(fixedDelay = 60_000)
+    public void watchdog() {
+        try {
+            jobService.recoverStalledSteps();
+        } catch (Exception e) {
+            log.error("Watchdog encountered an error during stalled-step recovery", e);
+        }
     }
 }

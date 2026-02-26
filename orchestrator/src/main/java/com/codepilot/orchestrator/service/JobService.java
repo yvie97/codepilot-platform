@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -189,6 +190,36 @@ public class JobService {
     public void heartbeat(Step step) {
         step.setHeartbeatAt(Instant.now());
         stepRepo.save(step);
+    }
+
+    /**
+     * Detect and recover steps whose worker has silently crashed (§8.2).
+     *
+     * A step is considered stalled when it has been RUNNING for more than
+     * STALL_TIMEOUT without a heartbeat update. The step is reset to PENDING
+     * (or permanently FAILED if it has exhausted its retry attempts) so the
+     * scheduler can pick it up again on the next tick.
+     *
+     * Called by StepScheduler every 60 seconds.
+     */
+    @Transactional
+    public void recoverStalledSteps() {
+        Instant cutoff = Instant.now().minus(Duration.ofMinutes(5));
+        List<Step> stalled = stepRepo.findByStateAndHeartbeatAtBefore(StepState.RUNNING, cutoff);
+        for (Step step : stalled) {
+            log.warn("Recovering stalled step {} (worker={}, last heartbeat={})",
+                    step.getId(), step.getWorkerId(), step.getHeartbeatAt());
+            failStep(step, "Worker heartbeat timed out after 5 minutes");
+        }
+    }
+
+    /**
+     * Return all steps for a job in creation order.
+     * Used by GET /jobs/{id}/steps.
+     */
+    @Transactional(readOnly = true)
+    public List<Step> getSteps(UUID jobId) {
+        return stepRepo.findByJobIdOrderByCreatedAtAsc(jobId);
     }
 
     /**
