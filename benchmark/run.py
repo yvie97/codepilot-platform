@@ -110,11 +110,18 @@ def main():
     for task in tasks:
         task_id = task["id"]
         print(f"[{task_id}] {task['description'][:80]}")
-        print(f"  repo={task['repo_url']}  ref={task['git_ref']}")
+
+        # Prefer repo_url_local (file:// path) when repo_url is a PLACEHOLDER
+        repo_url = task["repo_url"]
+        if repo_url.startswith("PLACEHOLDER") and "repo_url_local" in task:
+            repo_url = task["repo_url_local"]
+            print(f"  (using local repo: {repo_url})")
+
+        print(f"  repo={repo_url}  ref={task['git_ref']}")
 
         # Submit
         try:
-            job_id = submit_job(base_url, task["repo_url"], task["git_ref"])
+            job_id = submit_job(base_url, repo_url, task["git_ref"])
         except Exception as e:
             print(f"  ERROR submitting: {e}")
             results.append({"task_id": task_id, "job_id": None,
