@@ -117,6 +117,24 @@ class JobServiceTest {
         ArgumentCaptor<Job> jobCaptor = ArgumentCaptor.forClass(Job.class);
         verify(jobRepo).save(jobCaptor.capture());
         assertThat(jobCaptor.getValue().getState()).isEqualTo(JobState.FAILED);
+        // Workspace must be cleaned up
+        verify(workspaceClient).deleteWorkspace(job.getWorkspaceRef());
+    }
+
+    @Test
+    void failStep_workspaceDeleteFails_jobStillMarkedFailed() {
+        // A broken executor must never roll back the DB state
+        Step step = stepWithAttempt(2);
+        Job job   = jobWithId();
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+        doThrow(new com.codepilot.orchestrator.executor.ExecutorException("network error", null))
+                .when(workspaceClient).deleteWorkspace(any());
+
+        service.failStep(step, "max retries");
+
+        // Job must still be FAILED despite the cleanup failure
+        assertThat(job.getState()).isEqualTo(JobState.FAILED);
     }
 
     // ------------------------------------------------------------------
@@ -156,6 +174,37 @@ class JobServiceTest {
         // No new step should be created after the last role
         verify(stepRepo, times(1)).save(any());  // only the REVIEWER step itself
         // Job must be DONE
+        assertThat(job.getState()).isEqualTo(JobState.DONE);
+        // Workspace must be cleaned up
+        verify(workspaceClient).deleteWorkspace(job.getWorkspaceRef());
+    }
+
+    @Test
+    void completeStep_intermediateRole_doesNotCleanupWorkspace() {
+        // Cleanup should only happen at terminal state (DONE), not between steps
+        Step step = stepForRole(AgentRole.PLANNER);
+        Job job   = jobWithId();
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+
+        service.completeStep(step, "{\"plan\": true}");
+
+        verify(workspaceClient, never()).deleteWorkspace(any());
+    }
+
+    @Test
+    void completeStep_workspaceDeleteFails_jobStillMarkedDone() {
+        // A broken executor must never roll back the DB state
+        Step step = stepForRole(AgentRole.REVIEWER);
+        Job job   = jobWithId();
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+        doThrow(new com.codepilot.orchestrator.executor.ExecutorException("network error", null))
+                .when(workspaceClient).deleteWorkspace(any());
+
+        service.completeStep(step, "{\"approved\": true}");
+
+        // Job must still be DONE despite the cleanup failure
         assertThat(job.getState()).isEqualTo(JobState.DONE);
     }
 

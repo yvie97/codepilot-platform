@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "description": "BugFixBench-Java-25 — curated single-method bug-fix tasks drawn from Apache Commons projects. Each task references a release tag where the bug is present; the agent must locate, understand, and fix the defect so that the listed failing_test passes.",
+  "notes": [
+    "git_ref is the release tag where the bug exists (before the fix was merged).",
+    "failing_test is the Maven Surefire test filter to run: mvn test -Dtest=<value>.",
+    "bug_category: logic_error | off_by_one | null_handling | boundary | concurrency",
+    "difficulty: easy | medium | hard"
+  ],
+  "tasks": [
+    {
+      "id": "LANG-1",
+      "project": "commons-lang",
+      "repo_url": "https://github.com/apache/commons-lang.git",
+      "git_ref": "LANG_3_12_0",
+      "description": "StringUtils.rotate(String, int) returns the wrong result when the shift distance equals the string length — it should return the original string, but throws StringIndexOutOfBoundsException instead.",
+      "affected_file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "affected_method": "rotate",
+      "failing_test": "StringUtilsTest#testRotate",
+      "test_command": ["mvn", "-q", "test", "-Dtest=StringUtilsTest#testRotate"],
+      "bug_category": "off_by_one",
+      "difficulty": "easy",
+      "jira": "LANG-1649"
+    },
+    {
+      "id": "LANG-2",
+      "project": "commons-lang",
+      "repo_url": "https://github.com/apache/commons-lang.git",
+      "git_ref": "LANG_3_11",
+      "description": "NumberUtils.createNumber(String) throws NumberFormatException instead of returning null when given a trailing-decimal string like '1.1L'.",
+      "affected_file": "src/main/java/org/apache/commons/lang3/math/NumberUtils.java",
+      "affected_method": "createNumber",
+      "failing_test": "NumberUtilsTest#testCreateNumber",
+      "test_command": ["mvn", "-q", "test", "-Dtest=NumberUtilsTest#testCreateNumber"],
+      "bug_category": "null_handling",
+      "difficulty": "medium",
+      "jira": "LANG-1602"
+    },
+    {
+      "id": "LANG-3",
+      "project": "commons-lang",
+      "repo_url": "https://github.com/apache/commons-lang.git",
+      "git_ref": "LANG_3_9",
+      "description": "StringUtils.indexOfAnyBut(CharSequence, char...) returns 0 instead of -1 when the search char array is empty.",
+      "affected_file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+      "affected_method": "indexOfAnyBut",
+      "failing_test": "StringUtilsTest#testIndexOfAnyBut_StringCharArray",
+      "test_command": ["mvn", "-q", "test", "-Dtest=StringUtilsTest#testIndexOfAnyBut_StringCharArray"],
+      "bug_category": "boundary",
+      "difficulty": "easy",
+      "jira": "LANG-1528"
+    },
+    {
+      "id": "TEXT-1",
+      "project": "commons-text",
+      "repo_url": "https://github.com/apache/commons-text.git",
+      "git_ref": "rel/commons-text-1.10.0",
+      "description": "StringSubstitutor.replace() does not correctly resolve a variable whose default value itself contains a colon, e.g. ${var:-http://default}. The colon in the default is misinterpreted as a delimiter.",
+      "affected_file": "src/main/java/org/apache/commons/text/StringSubstitutor.java",
+      "affected_method": "resolveVariable",
+      "failing_test": "StringSubstitutorTest#testDefaultValueContainsColon",
+      "test_command": ["mvn", "-q", "test", "-Dtest=StringSubstitutorTest#testDefaultValueContainsColon"],
+      "bug_category": "logic_error",
+      "difficulty": "medium",
+      "jira": "TEXT-207"
+    },
+    {
+      "id": "TEXT-2",
+      "project": "commons-text",
+      "repo_url": "https://github.com/apache/commons-text.git",
+      "git_ref": "rel/commons-text-1.9",
+      "description": "StringTokenizer.reset(String) does not reset the internal position to 0, causing subsequent nextToken() calls to return tokens starting from the old position rather than the beginning of the new string.",
+      "affected_file": "src/main/java/org/apache/commons/text/StringTokenizer.java",
+      "affected_method": "reset",
+      "failing_test": "StringTokenizerTest#testReset",
+      "test_command": ["mvn", "-q", "test", "-Dtest=StringTokenizerTest#testReset"],
+      "bug_category": "logic_error",
+      "difficulty": "easy",
+      "jira": "TEXT-210"
+    }
+  ]
+}

@@ -140,14 +140,16 @@ public class JobService {
         if (nextRole == null) {
             // All five roles finished — job is complete.
             job.setState(JobState.DONE);
+            jobRepo.save(job);
             log.info("Job {} DONE", job.getId());
+            cleanupWorkspace(job);
         } else {
             // Enqueue the next agent role.
             stepRepo.save(new Step(job, nextRole));
             job.setState(jobStateFor(nextRole));
+            jobRepo.save(job);
             log.info("Job {} advancing to {}", job.getId(), job.getState());
         }
-        jobRepo.save(job);
     }
 
     /**
@@ -178,6 +180,7 @@ public class JobService {
             jobRepo.save(job);
             log.error("Step {} permanently failed after {} attempts. Job {} → FAILED.",
                     step.getId(), MAX_ATTEMPTS, job.getId());
+            cleanupWorkspace(job);
         }
         stepRepo.save(step);
     }
@@ -236,6 +239,24 @@ public class JobService {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /**
+     * Delete the executor workspace for a job that has reached a terminal state.
+     *
+     * Called inside @Transactional methods, so we must swallow any executor
+     * error here — a failed delete must never roll back the DB transaction.
+     * The job state is already committed before this runs; a leftover workspace
+     * only costs disk space and can be cleaned up manually if needed.
+     */
+    private void cleanupWorkspace(Job job) {
+        try {
+            workspaceClient.deleteWorkspace(job.getWorkspaceRef());
+            log.info("Workspace {} deleted for job {}", job.getWorkspaceRef(), job.getId());
+        } catch (Exception e) {
+            log.warn("Could not delete workspace {} for job {} — manual cleanup may be needed: {}",
+                    job.getWorkspaceRef(), job.getId(), e.getMessage());
+        }
+    }
 
     private static AgentRole nextRole(AgentRole current) {
         int idx = PIPELINE.indexOf(current);
