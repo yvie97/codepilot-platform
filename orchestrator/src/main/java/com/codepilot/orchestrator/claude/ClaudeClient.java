@@ -100,15 +100,34 @@ public class ClaudeClient {
      * @param messages the full conversation history so far (user + assistant turns)
      * @return the assistant's text content
      */
+    /** Convenience overload without a system prompt. */
     public String complete(String model, List<Message> messages) {
+        return complete(model, messages, null);
+    }
+
+    /**
+     * Send a conversation to Claude and return the assistant's text reply.
+     *
+     * @param model      e.g. "claude-sonnet-4-6"
+     * @param messages   the full conversation history (alternating user/assistant)
+     * @param systemPrompt optional system prompt; pass null to omit
+     * @return the assistant's text content
+     */
+    public String complete(String model, List<Message> messages, String systemPrompt) {
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new ClaudeApiException(0,
+                "ANTHROPIC_API_KEY is not set. Export it before starting the orchestrator.");
+        }
         try {
-            // 1. Build the JSON request body
-            //    The Anthropic API expects: { model, max_tokens, messages: [{role, content}] }
-            String requestBody = json.writeValueAsString(Map.of(
-                    "model",      model,
-                    "max_tokens", MAX_TOKENS,
-                    "messages",   messages
-            ));
+            // Build request body — include "system" only when provided.
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("model",      model);
+            body.put("max_tokens", MAX_TOKENS);
+            if (systemPrompt != null && !systemPrompt.isBlank()) {
+                body.put("system", systemPrompt);
+            }
+            body.put("messages", messages);
+            String requestBody = json.writeValueAsString(body);
 
             // 2. Build the HTTP request with the required headers
             HttpRequest request = HttpRequest.newBuilder()

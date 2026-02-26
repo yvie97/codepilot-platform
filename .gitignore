@@ -19,8 +19,9 @@ target/
 *.env
 .env
 
-# Large binary files (paper PDF lives outside the repo)
+# Large binary files / design docs (keep outside the repo)
 *.pdf
+CodePilot-design.md
 
 # macOS
 .DS_Store
