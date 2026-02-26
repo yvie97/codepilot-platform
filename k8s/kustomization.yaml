@@ -1,0 +1,20 @@
+# Kustomize ties all manifests together so the whole stack deploys
+# with a single command:
+#
+#   kubectl apply -k k8s/
+#
+# Deployment order is handled automatically by Kubernetes — the
+# readinessProbes ensure each service is healthy before dependents
+# start receiving traffic.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: codepilot
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml       # replace placeholder values before applying!
+  - postgres.yaml
+  - executor.yaml
+  - orchestrator.yaml

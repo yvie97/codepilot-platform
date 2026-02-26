@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: codepilot-config
+  namespace: codepilot
+data:
+  # Spring Boot reads these env vars via relaxed binding:
+  #   SPRING_DATASOURCE_URL → spring.datasource.url
+  #   CODEPILOT_EXECUTOR_BASE_URL → codepilot.executor.base-url
+  #
+  # Service hostnames resolve within the codepilot namespace automatically.
+  SPRING_DATASOURCE_URL:      "jdbc:postgresql://postgres:5432/codepilot"
+  SPRING_DATASOURCE_USERNAME: "codepilot"
+  CODEPILOT_EXECUTOR_BASE_URL: "http://executor:8001"
+  # Suppress Hibernate schema validation warnings in logs
+  SPRING_JPA_OPEN_IN_VIEW:   "false"

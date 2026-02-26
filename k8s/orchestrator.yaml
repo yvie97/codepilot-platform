@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: codepilot
+  labels:
+    app: orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001          # matches the 'orchestrator' user in the Dockerfile
+      containers:
+        - name: orchestrator
+          image: codepilot-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          # Non-sensitive config from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: codepilot-config
+          # Sensitive config from Secret (merged on top of ConfigMap)
+          env:
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: codepilot-secrets
+                  key: SPRING_DATASOURCE_PASSWORD
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codepilot-secrets
+                  key: ANTHROPIC_API_KEY
+          resources:
+            requests:
+              cpu:    "250m"
+              memory: "512Mi"
+            limits:
+              cpu:    "1000m"
+              memory: "1Gi"
+          # TCP socket probe — no Spring Actuator dependency required
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 30    # Spring Boot + Flyway migration needs time
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+---
+# LoadBalancer Service — exposes the REST API to the outside world.
+# In a cloud environment (GKE, EKS, AKS) this provisions an external IP.
+# For local testing with minikube: run `minikube tunnel` to get a real IP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: codepilot
+spec:
+  type: LoadBalancer
+  selector:
+    app: orchestrator
+  ports:
+    - port: 80              # external port (standard HTTP)
+      targetPort: 8080      # container port

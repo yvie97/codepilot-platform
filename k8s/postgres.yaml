@@ -1,0 +1,72 @@
+# StatefulSet (not Deployment) because PostgreSQL has persistent state.
+# Each pod gets a stable hostname and a dedicated PersistentVolume.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: codepilot
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres      # matches the headless Service name below
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: codepilot
+            - name: POSTGRES_USER
+              value: codepilot
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: codepilot-secrets
+                  key: SPRING_DATASOURCE_PASSWORD
+          resources:
+            requests:
+              cpu:    "250m"
+              memory: "256Mi"
+            limits:
+              cpu:    "500m"
+              memory: "512Mi"
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "codepilot"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# ClusterIP Service — only reachable from within the cluster.
+# Orchestrator connects to "postgres:5432".
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: codepilot
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

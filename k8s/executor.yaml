@@ -1,0 +1,64 @@
+# Deployment (not StatefulSet) — executor is stateless.
+# Workspaces live in /tmp inside each pod (ephemeral, per-pod).
+# In production you would mount a shared PVC here so snapshots
+# survive pod restarts; for the research prototype /tmp is fine.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor
+  namespace: codepilot
+  labels:
+    app: executor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: executor
+  template:
+    metadata:
+      labels:
+        app: executor
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000          # matches the 'executor' user in the Dockerfile
+      containers:
+        - name: executor
+          image: codepilot-executor:latest
+          imagePullPolicy: IfNotPresent   # use local image in dev; set to Always in CI
+          ports:
+            - containerPort: 8001
+          resources:
+            requests:
+              cpu:    "250m"
+              memory: "256Mi"
+            limits:
+              cpu:    "1000m"   # agent code execution can be CPU-intensive
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /workspace/health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /workspace/health
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+---
+# ClusterIP Service — only the orchestrator talks to the executor.
+# Not exposed outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor
+  namespace: codepilot
+spec:
+  selector:
+    app: executor
+  ports:
+    - port: 8001
+      targetPort: 8001

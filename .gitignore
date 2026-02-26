@@ -18,6 +18,7 @@ target/
 # Secrets / local config
 *.env
 .env
+k8s/secret.yaml
 
 # Large binary files / design docs (keep outside the repo)
 *.pdf
