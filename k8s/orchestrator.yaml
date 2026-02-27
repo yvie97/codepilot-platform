@@ -47,14 +47,15 @@ spec:
             limits:
               cpu:    "1000m"
               memory: "1Gi"
-          # TCP socket probe — no Spring Actuator dependency required
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /actuator/health
               port: 8080
             initialDelaySeconds: 30    # Spring Boot + Flyway migration needs time
             periodSeconds: 10
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /actuator/health
               port: 8080
             initialDelaySeconds: 60
             periodSeconds: 30

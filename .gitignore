@@ -24,5 +24,8 @@ k8s/secret.yaml
 *.pdf
 CodePilot-design.md
 
+# Benchmark sub-repo (has its own git, tracked separately)
+benchmark/java-bugs/
+
 # macOS
 .DS_Store
