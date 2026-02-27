@@ -209,6 +209,22 @@ class JobServiceTest {
     }
 
     // ------------------------------------------------------------------
+    // saveHistory() — conversation history persistence (§5.3)
+    // ------------------------------------------------------------------
+
+    @Test
+    void saveHistory_persistsJsonStringToStep() {
+        Step step = stepForRole(AgentRole.PLANNER);
+        when(stepRepo.save(any())).thenReturn(step);
+
+        service.saveHistory(step, "[{\"role\":\"user\",\"content\":\"hello\"}]");
+
+        assertThat(step.getConversationHistory())
+                .isEqualTo("[{\"role\":\"user\",\"content\":\"hello\"}]");
+        verify(stepRepo).save(step);
+    }
+
+    // ------------------------------------------------------------------
     // completeStep() — backtracking (§4.2)
     // ------------------------------------------------------------------
 

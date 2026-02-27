@@ -62,6 +62,11 @@ public class Step {
     @Column(name = "result_json", columnDefinition = "TEXT")
     private String resultJson;
 
+    // Full conversation history as a JSON array of {role, content} objects (§5.3).
+    // Saved after every agent turn so a crashed worker can resume mid-step.
+    @Column(name = "conversation_history", columnDefinition = "TEXT")
+    private String conversationHistory;
+
     // ------------------------------------------------------------------
     // Constructors
     // ------------------------------------------------------------------
@@ -89,11 +94,14 @@ public class Step {
     public Instant    getFinishedAt()  { return finishedAt; }
     public String     getResultJson()  { return resultJson; }
 
-    public void setState(StepState state)         { this.state = state; }
-    public void setWorkerId(String workerId)       { this.workerId = workerId; }
-    public void setHeartbeatAt(Instant t)          { this.heartbeatAt = t; }
-    public void setStartedAt(Instant t)            { this.startedAt = t; }
-    public void setFinishedAt(Instant t)           { this.finishedAt = t; }
-    public void setResultJson(String resultJson)   { this.resultJson = resultJson; }
-    public void incrementAttempt()                 { this.attempt++; }
+    public void setState(StepState state)                         { this.state = state; }
+    public void setWorkerId(String workerId)                       { this.workerId = workerId; }
+    public void setHeartbeatAt(Instant t)                          { this.heartbeatAt = t; }
+    public void setStartedAt(Instant t)                            { this.startedAt = t; }
+    public void setFinishedAt(Instant t)                           { this.finishedAt = t; }
+    public void setResultJson(String resultJson)                    { this.resultJson = resultJson; }
+    public void setConversationHistory(String conversationHistory)  { this.conversationHistory = conversationHistory; }
+    public void incrementAttempt()                                  { this.attempt++; }
+
+    public String getConversationHistory() { return conversationHistory; }
 }

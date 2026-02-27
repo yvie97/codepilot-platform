@@ -7,9 +7,10 @@ import com.codepilot.orchestrator.executor.WorkspaceClient;
 import com.codepilot.orchestrator.model.AgentRole;
 import com.codepilot.orchestrator.model.Step;
 import com.codepilot.orchestrator.service.JobService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -51,13 +52,18 @@ public class AgentLoop {
     private final ClaudeClient    claude;
     private final WorkspaceClient executor;
     private final JobService      jobService;
+    private final ObjectMapper    objectMapper;
+
+    private static final TypeReference<List<Message>> MSG_LIST_TYPE = new TypeReference<>() {};
 
     public AgentLoop(ClaudeClient claude,
                      WorkspaceClient executor,
-                     JobService jobService) {
-        this.claude     = claude;
-        this.executor   = executor;
-        this.jobService = jobService;
+                     JobService jobService,
+                     ObjectMapper objectMapper) {
+        this.claude       = claude;
+        this.executor     = executor;
+        this.jobService   = jobService;
+        this.objectMapper = objectMapper;
     }
 
     // ------------------------------------------------------------------
@@ -82,9 +88,10 @@ public class AgentLoop {
         Map<AgentRole, String> priorResults =
                 jobService.completedResults(step.getJob().getId());
 
-        // Build the conversation history starting with the system + initial user message.
-        List<Message> history = new ArrayList<>();
-        history.add(new Message("user", buildInitialPrompt(step.getRole(), priorResults)));
+        // Build or restore conversation history (§5.3 — crash recovery).
+        // If this step was previously interrupted, resume from the saved history
+        // instead of restarting from scratch.
+        List<Message> history = loadOrInitHistory(step, priorResults);
 
         // Multi-turn loop
         for (int turn = 1; turn <= MAX_TURNS; turn++) {
@@ -121,6 +128,9 @@ public class AgentLoop {
 
             history.add(new Message("user", "Observation:\n" + observation));
 
+            // --- Persist history for crash recovery (§5.3) ---
+            persistHistory(step, history);
+
             // --- Heartbeat: tell DB this worker is still alive ---
             if (turn % HEARTBEAT_EVERY == 0) {
                 jobService.heartbeat(step);
@@ -135,6 +145,45 @@ public class AgentLoop {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /**
+     * Load saved history from the step (crash recovery), or start a fresh history.
+     *
+     * If the step has a non-null conversationHistory, the worker was interrupted
+     * mid-step and we resume from the last persisted turn. Otherwise we start a
+     * new conversation with the role-specific initial prompt.
+     */
+    private List<Message> loadOrInitHistory(Step step, Map<AgentRole, String> priorResults) {
+        String saved = step.getConversationHistory();
+        if (saved != null && !saved.isBlank()) {
+            try {
+                List<Message> restored = objectMapper.readValue(saved, MSG_LIST_TYPE);
+                log.info("Step {} resuming from saved history ({} messages)",
+                        step.getId(), restored.size());
+                return restored;
+            } catch (Exception e) {
+                log.warn("Could not deserialise history for step {}, starting fresh: {}",
+                        step.getId(), e.getMessage());
+            }
+        }
+        List<Message> fresh = new ArrayList<>();
+        fresh.add(new Message("user", buildInitialPrompt(step.getRole(), priorResults)));
+        return fresh;
+    }
+
+    /**
+     * Serialise and save the current conversation history to the DB.
+     * Failures are logged but never propagated — a missed save is non-fatal
+     * (the worst case is that a retry has to redo one extra turn).
+     */
+    private void persistHistory(Step step, List<Message> history) {
+        try {
+            jobService.saveHistory(step, objectMapper.writeValueAsString(history));
+        } catch (Exception e) {
+            log.warn("Could not persist conversation history for step {}: {}",
+                    step.getId(), e.getMessage());
+        }
+    }
 
     /**
      * Execute a Python code block in the sandbox and return the observation string.

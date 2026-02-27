@@ -220,6 +220,19 @@ public class JobService {
     }
 
     /**
+     * Persist the serialised conversation history for a running step (§5.3).
+     *
+     * Called by AgentLoop after every agent turn so that a crashed worker
+     * can resume from the last saved point instead of restarting the full
+     * conversation. The historyJson is a Jackson-serialised List<Message>.
+     */
+    @Transactional
+    public void saveHistory(Step step, String historyJson) {
+        step.setConversationHistory(historyJson);
+        stepRepo.save(step);
+    }
+
+    /**
      * Update the heartbeat timestamp for a running step.
      * Called periodically by the worker thread to prove liveness (§8.2).
      */
