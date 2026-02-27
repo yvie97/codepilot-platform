@@ -4,6 +4,7 @@ import com.codepilot.orchestrator.executor.WorkspaceClient;
 import com.codepilot.orchestrator.model.*;
 import com.codepilot.orchestrator.repository.JobRepository;
 import com.codepilot.orchestrator.repository.StepRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,11 +34,13 @@ class JobServiceTest {
     @Mock StepRepository  stepRepo;
     @Mock WorkspaceClient workspaceClient;
 
-    JobService service;
+    SimpleMeterRegistry meterRegistry;
+    JobService          service;
 
     @BeforeEach
     void setUp() {
-        service = new JobService(jobRepo, stepRepo, workspaceClient);
+        meterRegistry = new SimpleMeterRegistry();
+        service = new JobService(jobRepo, stepRepo, workspaceClient, meterRegistry);
     }
 
     // ------------------------------------------------------------------
@@ -73,6 +76,30 @@ class JobServiceTest {
 
         assertThat(result.getState()).isEqualTo(JobState.FAILED);
         verify(stepRepo, never()).save(any());   // no steps created on failure
+    }
+
+    @Test
+    void submit_happyPath_incrementsSubmittedCounter() {
+        Job savedJob = jobWithId();
+        when(jobRepo.save(any())).thenReturn(savedJob);
+        doNothing().when(workspaceClient).createWorkspace(any(), any(), any());
+
+        service.submit("https://github.com/org/repo.git", "main");
+
+        assertThat(meterRegistry.counter("codepilot.jobs.submitted").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void submit_workspaceCreationFails_incrementsFailedCounter() {
+        Job savedJob = jobWithId();
+        when(jobRepo.save(any())).thenReturn(savedJob);
+        doThrow(new com.codepilot.orchestrator.executor.ExecutorException("clone failed", null))
+                .when(workspaceClient).createWorkspace(any(), any(), any());
+
+        service.submit("https://github.com/org/repo.git", "main");
+
+        assertThat(meterRegistry.counter("codepilot.jobs.failed", "reason", "workspace_error").count())
+                .isEqualTo(1.0);
     }
 
     // ------------------------------------------------------------------
@@ -206,6 +233,46 @@ class JobServiceTest {
 
         // Job must still be DONE despite the cleanup failure
         assertThat(job.getState()).isEqualTo(JobState.DONE);
+    }
+
+    @Test
+    void completeStep_reviewer_incrementsCompletedCounter() {
+        Step step = stepForRole(AgentRole.REVIEWER);
+        Job job   = jobWithId();
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+
+        service.completeStep(step, "{\"approved\": true}");
+
+        assertThat(meterRegistry.counter("codepilot.jobs.completed").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void completeStep_testerFails_firstFailure_incrementsBacktrackedCounter() {
+        Step step = stepForRole(AgentRole.TESTER);
+        Job job   = jobWithId();
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+
+        service.completeStep(step, "{\"tests_passed\":false}");
+
+        assertThat(meterRegistry.counter("codepilot.jobs.backtracked").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void failStep_permanent_incrementsStepFailedAndJobFailedCounters() {
+        Step step = stepWithAttempt(2);
+        step = stepForRoleWithAttempt(AgentRole.PLANNER, 2);
+        Job job   = jobWithId();
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+
+        service.failStep(step, "max retries");
+
+        assertThat(meterRegistry.counter("codepilot.steps.failed", "role", "PLANNER").count())
+                .isEqualTo(1.0);
+        assertThat(meterRegistry.counter("codepilot.jobs.failed", "reason", "max_retries").count())
+                .isEqualTo(1.0);
     }
 
     // ------------------------------------------------------------------
@@ -352,6 +419,13 @@ class JobServiceTest {
 
     private Step stepWithAttempt(int attempt) {
         Step step = stepForRole(AgentRole.REPO_MAPPER);
+        for (int i = 0; i < attempt; i++) step.incrementAttempt();
+        return step;
+    }
+
+    private Step stepForRoleWithAttempt(AgentRole role, int attempt) {
+        Step step = stepForRole(role);
+        step.setStartedAt(Instant.now().minusSeconds(30));  // simulate 30 s elapsed
         for (int i = 0; i < attempt; i++) step.incrementAttempt();
         return step;
     }

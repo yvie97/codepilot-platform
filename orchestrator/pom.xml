@@ -52,10 +52,16 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
-        <!-- Spring Boot Actuator (health endpoint for K8s probes) -->
+        <!-- Spring Boot Actuator (health + metrics endpoints) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Micrometer → Prometheus exporter (§10) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
         <!-- Testing -->

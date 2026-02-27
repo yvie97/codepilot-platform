@@ -5,6 +5,7 @@ import com.codepilot.orchestrator.executor.WorkspaceClient;
 import com.codepilot.orchestrator.model.*;
 import com.codepilot.orchestrator.repository.JobRepository;
 import com.codepilot.orchestrator.repository.StepRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -41,13 +42,16 @@ public class JobService {
     private final JobRepository     jobRepo;
     private final StepRepository    stepRepo;
     private final WorkspaceClient   workspaceClient;
+    private final MeterRegistry     meterRegistry;
 
     public JobService(JobRepository jobRepo,
                       StepRepository stepRepo,
-                      WorkspaceClient workspaceClient) {
+                      WorkspaceClient workspaceClient,
+                      MeterRegistry meterRegistry) {
         this.jobRepo         = jobRepo;
         this.stepRepo        = stepRepo;
         this.workspaceClient = workspaceClient;
+        this.meterRegistry   = meterRegistry;
     }
 
     // ------------------------------------------------------------------
@@ -76,12 +80,14 @@ public class JobService {
         } catch (ExecutorException e) {
             log.error("Workspace creation failed for job {}", job.getId(), e);
             job.setState(JobState.FAILED);
+            meterRegistry.counter("codepilot.jobs.failed", "reason", "workspace_error").increment();
             return jobRepo.save(job);
         }
 
         // Step 4-5: enqueue the first pipeline step and advance job state
         stepRepo.save(new Step(job, AgentRole.REPO_MAPPER));
         job.setState(JobState.MAP_REPO);
+        meterRegistry.counter("codepilot.jobs.submitted").increment();
         return jobRepo.save(job);
     }
 
@@ -140,6 +146,7 @@ public class JobService {
         stepRepo.save(step);
 
         Job job = jobRepo.findById(step.getJob().getId()).orElseThrow();
+        recordStepDuration(step, "done");
 
         // ── Backtracking (§4.2) ──────────────────────────────────────────────
         if (step.getRole() == AgentRole.TESTER && !parseTestsPassed(resultJson)) {
@@ -150,6 +157,8 @@ public class JobService {
                 jobRepo.save(job);
                 log.error("Job {} FAILED: {} consecutive TESTER failures, backtrack budget exhausted.",
                         job.getId(), job.getConsecutiveTestFailures());
+                meterRegistry.counter("codepilot.jobs.failed",
+                        "reason", "test_budget_exhausted").increment();
                 cleanupWorkspace(job);
             } else {
                 // First failure → backtrack: re-queue PLANNER with failure context in priorResults.
@@ -159,6 +168,7 @@ public class JobService {
                 stepRepo.save(new Step(job, AgentRole.PLANNER));
                 log.warn("Job {} backtracking to PLAN (iteration={}, consecutiveTestFailures={})",
                         job.getId(), job.getIterationCount(), job.getConsecutiveTestFailures());
+                meterRegistry.counter("codepilot.jobs.backtracked").increment();
             }
             return;
         }
@@ -176,6 +186,7 @@ public class JobService {
             job.setState(JobState.DONE);
             jobRepo.save(job);
             log.info("Job {} DONE", job.getId());
+            meterRegistry.counter("codepilot.jobs.completed").increment();
             cleanupWorkspace(job);
         } else {
             // Enqueue the next agent role.
@@ -206,6 +217,7 @@ public class JobService {
             log.warn("Step {} failed (attempt {}/{}), will retry. Reason: {}",
                     step.getId(), step.getAttempt(), MAX_ATTEMPTS, reason);
         } else {
+            recordStepDuration(step, "failed");
             step.setState(StepState.FAILED);
             stepRepo.save(step);
 
@@ -214,6 +226,10 @@ public class JobService {
             jobRepo.save(job);
             log.error("Step {} permanently failed after {} attempts. Job {} → FAILED.",
                     step.getId(), MAX_ATTEMPTS, job.getId());
+            meterRegistry.counter("codepilot.steps.failed",
+                    "role", step.getRole().name()).increment();
+            meterRegistry.counter("codepilot.jobs.failed",
+                    "reason", "max_retries").increment();
             cleanupWorkspace(job);
         }
         stepRepo.save(step);
@@ -326,6 +342,24 @@ public class JobService {
             case TESTER       -> JobState.TEST;
             case REVIEWER     -> JobState.REVIEW;
         };
+    }
+
+    /**
+     * Record how long a step took from start to now, tagged by role and outcome.
+     *
+     * Metric name: codepilot.steps.duration
+     * Tags:        role    = REPO_MAPPER | PLANNER | IMPLEMENTER | TESTER | REVIEWER
+     *              outcome = done | failed
+     *
+     * startedAt is null if the step never actually ran (shouldn't happen in normal
+     * flow, but we guard defensively to avoid a NullPointerException).
+     */
+    private void recordStepDuration(Step step, String outcome) {
+        if (step.getStartedAt() == null) return;
+        meterRegistry.timer("codepilot.steps.duration",
+                        "role",    step.getRole().name(),
+                        "outcome", outcome)
+                .record(Duration.between(step.getStartedAt(), Instant.now()));
     }
 
     /**
