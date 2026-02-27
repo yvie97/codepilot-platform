@@ -26,9 +26,13 @@ services:
       - "8001:8001"          # expose for local curl / debugging
     # /tmp is writable inside the container; workspaces live there
     tmpfs:
-      - /tmp/codepilot-workspaces
+      - /tmp/codepilot-workspaces:mode=1777
+    volumes:
+      # Persist Maven local repo between container restarts so we don't
+      # re-download JUnit/other dependencies on every 'docker compose up'.
+      - maven_cache:/home/executor/.m2
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8001/workspace/health || exit 1"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/workspace/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -56,3 +60,4 @@ services:
 
 volumes:
   postgres_data:
+  maven_cache:       # Maven local repo — persists downloaded JARs across restarts

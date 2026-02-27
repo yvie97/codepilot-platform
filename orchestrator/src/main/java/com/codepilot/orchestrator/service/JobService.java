@@ -117,6 +117,11 @@ public class JobService {
             step.setStartedAt(Instant.now());
             step.setHeartbeatAt(Instant.now());
             stepRepo.save(step);
+            // Force the Job proxy to fully load while we still have a Hibernate session.
+            // The native SQL query does not JOIN the jobs table, so job is a lazy proxy.
+            // Accessing any non-id field here initialises it; without this the worker
+            // thread (which has no session) throws LazyInitializationException.
+            step.getJob().getWorkspaceRef();
             log.info("Worker '{}' claimed step {} (job={}, role={})",
                     workerId, step.getId(), step.getJob().getId(), step.getRole());
         });
