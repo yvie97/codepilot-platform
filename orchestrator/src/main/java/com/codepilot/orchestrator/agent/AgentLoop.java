@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -81,6 +82,13 @@ public class AgentLoop {
      * a worker thread in the StepScheduler's thread pool.
      */
     public void run(Step step) {
+        // Populate MDC so every log line in this worker thread automatically carries
+        // these fields — both in plain-text format (dev) and JSON format (prod).
+        MDC.put("jobId",   step.getJob().getId().toString());
+        MDC.put("stepId",  step.getId().toString());
+        MDC.put("role",    step.getRole().name());
+        MDC.put("attempt", String.valueOf(step.getAttempt()));
+        try {
         log.info("Starting agent loop: job={} role={} attempt={}",
                 step.getJob().getId(), step.getRole(), step.getAttempt());
 
@@ -143,6 +151,11 @@ public class AgentLoop {
         // Max turns reached without a <result> tag.
         jobService.failStep(step,
                 "Max turns (" + MAX_TURNS + ") reached without producing a <result> tag.");
+        } finally {
+            // Always clear MDC to prevent context leaking to the next task
+            // executed by the same thread-pool worker thread.
+            MDC.clear();
+        }
     }
 
     // ------------------------------------------------------------------

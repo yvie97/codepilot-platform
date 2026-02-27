@@ -14,3 +14,5 @@ data:
   CODEPILOT_EXECUTOR_BASE_URL: "http://executor:8001"
   # Suppress Hibernate schema validation warnings in logs
   SPRING_JPA_OPEN_IN_VIEW:   "false"
+  # Activate the prod Spring profile → enables JSON logging (logback-spring.xml)
+  SPRING_PROFILES_ACTIVE:    "prod"

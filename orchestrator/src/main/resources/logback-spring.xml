@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logback configuration for CodePilot Orchestrator (§10.2).
+
+  Two profiles:
+    - prod    → JSON output via logstash-logback-encoder (machine-readable, sent to log aggregator)
+    - default → Human-readable coloured console output (local development)
+
+  MDC fields automatically included in every log line when set:
+    jobId, stepId, role, attempt
+-->
+<configuration>
+
+    <!-- ================================================================
+         PROD profile: structured JSON output
+         ================================================================ -->
+    <springProfile name="prod">
+        <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <!-- Use epoch-millis for easier sorting in Kibana / Loki -->
+                <timestampPattern>[UNIX_TIMESTAMP_AS_NUMBER]</timestampPattern>
+                <!-- Rename the default "message" field to "msg" to match ECS conventions -->
+                <fieldNames>
+                    <message>msg</message>
+                    <logger>logger</logger>
+                    <thread>thread</thread>
+                    <levelValue>[ignore]</levelValue>
+                </fieldNames>
+                <!-- Promote MDC fields to top-level JSON fields for easy filtering -->
+                <includeMdcKeyName>jobId</includeMdcKeyName>
+                <includeMdcKeyName>stepId</includeMdcKeyName>
+                <includeMdcKeyName>role</includeMdcKeyName>
+                <includeMdcKeyName>attempt</includeMdcKeyName>
+                <!-- Include the application name tag set in application.properties -->
+                <providers>
+                    <mdc/>
+                    <arguments/>
+                    <logstashMarkers/>
+                    <stackTrace/>
+                </providers>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ================================================================
+         Default (dev / test): human-readable coloured output
+         ================================================================ -->
+    <springProfile name="!prod">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{36}) [job=%mdc{jobId:-–} step=%mdc{stepId:-–} role=%mdc{role:-–}] - %msg%n</pattern>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+
+        <!-- Reduce noise from framework classes during development -->
+        <logger name="org.hibernate.SQL" level="WARN"/>
+        <logger name="org.springframework.web" level="WARN"/>
+        <logger name="org.flywaydb" level="INFO"/>
+    </springProfile>
+
+</configuration>
