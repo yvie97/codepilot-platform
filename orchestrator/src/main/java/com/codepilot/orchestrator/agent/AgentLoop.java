@@ -53,17 +53,20 @@ public class AgentLoop {
     private final WorkspaceClient executor;
     private final JobService      jobService;
     private final ObjectMapper    objectMapper;
+    private final SystemPrompts   systemPrompts;
 
     private static final TypeReference<List<Message>> MSG_LIST_TYPE = new TypeReference<>() {};
 
     public AgentLoop(ClaudeClient claude,
                      WorkspaceClient executor,
                      JobService jobService,
-                     ObjectMapper objectMapper) {
-        this.claude       = claude;
-        this.executor     = executor;
-        this.jobService   = jobService;
-        this.objectMapper = objectMapper;
+                     ObjectMapper objectMapper,
+                     SystemPrompts systemPrompts) {
+        this.claude        = claude;
+        this.executor      = executor;
+        this.jobService    = jobService;
+        this.objectMapper  = objectMapper;
+        this.systemPrompts = systemPrompts;
     }
 
     // ------------------------------------------------------------------
@@ -100,7 +103,7 @@ public class AgentLoop {
             // --- Call Claude ---
             String response;
             try {
-                response = claude.complete(MODEL, history, SystemPrompts.get(step.getRole()));
+                response = claude.complete(MODEL, history, systemPrompts.get(step.getRole()));
             } catch (Exception e) {
                 jobService.failStep(step, "Claude API error: " + e.getMessage());
                 return;

@@ -1,13 +1,16 @@
 package com.codepilot.orchestrator.agent;
 
 import com.codepilot.orchestrator.model.AgentRole;
+import com.codepilot.orchestrator.skill.SkillRegistry;
+import org.springframework.stereotype.Component;
 
 /**
  * System prompts for each agent role in the CodePilot pipeline (§5.3).
  *
  * Each prompt tells Claude:
  *   1. What role it is playing
- *   2. What tools are available (the sandbox tool functions)
+ *   2. What tools are available — generated from {@link SkillRegistry} so
+ *      the documentation is always in sync with the registered skill set (§6.3)
  *   3. How to structure its output
  *   4. When to write <result>...</result> to finish
  *
@@ -16,62 +19,31 @@ import com.codepilot.orchestrator.model.AgentRole;
  * observation (stdout/stderr), and iterate until it has enough
  * information to produce a final result.
  */
+@Component
 public class SystemPrompts {
 
-    private SystemPrompts() {}
+    private final String toolDocs;
 
-    private static final String TOOL_DOCS = """
-            You have access to the following tool functions. Call them by writing
-            Python code blocks (```python ... ```) which will be executed in a
-            sandbox and the output returned to you as an observation.
+    /**
+     * Tool documentation is built once at startup from the live SkillRegistry.
+     * Any new skill added as a @Component automatically appears in agent prompts.
+     */
+    public SystemPrompts(SkillRegistry registry) {
+        this.toolDocs = registry.buildToolDocumentation();
+    }
 
-            AVAILABLE TOOLS:
-              read_file(path: str) -> str
-                  Read a file relative to the workspace root.
-
-              write_file(path: str, content: str) -> None
-                  Write content to a file (creates parent dirs automatically).
-
-              list_files(path: str = ".", pattern: str = "**/*") -> list[str]
-                  List files matching a glob pattern under path.
-
-              search_code(pattern: str, path: str = ".") -> list[dict]
-                  Search for a regex pattern using ripgrep.
-                  Returns [{file, line, text}, ...].
-
-              git_status() -> str
-                  Show the current git status of the workspace.
-
-              git_diff(base: str = "HEAD") -> str
-                  Show the unified diff vs base.
-
-              apply_patch(diff: str) -> dict
-                  Apply a unified diff to the workspace using git apply.
-                  Returns {exit_code, stdout, stderr, success}.
-
-              run_command(cmd: list[str], timeout: int = 300) -> dict
-                  Run an allowlisted command (mvn, java, git, rg).
-                  Returns {exit_code, stdout, stderr}.
-
-            RULES:
-              - Write one code block per turn; wait for the observation before continuing.
-              - Use print() to output information you want to see.
-              - When you have gathered enough information, write your final answer
-                inside <result>...</result> tags. This ends your turn.
-            """;
-
-    public static String get(AgentRole role) {
+    public String get(AgentRole role) {
         return switch (role) {
-            case REPO_MAPPER  -> REPO_MAPPER_PROMPT;
-            case PLANNER      -> PLANNER_PROMPT;
-            case IMPLEMENTER  -> IMPLEMENTER_PROMPT;
-            case TESTER       -> TESTER_PROMPT;
-            case REVIEWER     -> REVIEWER_PROMPT;
+            case REPO_MAPPER  -> REPO_MAPPER_PROMPT.replace("{{TOOL_DOCS}}", toolDocs);
+            case PLANNER      -> PLANNER_PROMPT.replace("{{TOOL_DOCS}}", toolDocs);
+            case IMPLEMENTER  -> IMPLEMENTER_PROMPT.replace("{{TOOL_DOCS}}", toolDocs);
+            case TESTER       -> TESTER_PROMPT.replace("{{TOOL_DOCS}}", toolDocs);
+            case REVIEWER     -> REVIEWER_PROMPT.replace("{{TOOL_DOCS}}", toolDocs);
         };
     }
 
     // ------------------------------------------------------------------
-    // Role prompts
+    // Role prompts  ({{TOOL_DOCS}} is replaced at construction time)
     // ------------------------------------------------------------------
 
     private static final String REPO_MAPPER_PROMPT = """
@@ -80,7 +52,7 @@ public class SystemPrompts {
             YOUR GOAL: Explore the repository and produce a structured summary that the
             next agents (Planner, Implementer) will use to navigate the codebase.
 
-            """ + TOOL_DOCS + """
+            {{TOOL_DOCS}}
 
             WHAT TO PRODUCE:
             Write a JSON object inside <result>...</result> with these fields:
@@ -102,7 +74,7 @@ public class SystemPrompts {
             YOUR GOAL: Given the failing test information and the repository map, produce
             a concrete, step-by-step repair plan that the Implementer agent will follow.
 
-            """ + TOOL_DOCS + """
+            {{TOOL_DOCS}}
 
             WHAT TO PRODUCE:
             Write a JSON object inside <result>...</result> with these fields:
@@ -124,7 +96,7 @@ public class SystemPrompts {
             YOUR GOAL: Follow the repair plan exactly and apply the code changes to the
             workspace using apply_patch(). Then verify the patch applied cleanly.
 
-            """ + TOOL_DOCS + """
+            {{TOOL_DOCS}}
 
             WORKFLOW:
               1. Read each file listed in the plan.
@@ -146,7 +118,7 @@ public class SystemPrompts {
             YOUR GOAL: Run the test suite and verify that the repair fixed the failing
             tests without breaking any previously passing tests.
 
-            """ + TOOL_DOCS + """
+            {{TOOL_DOCS}}
 
             WORKFLOW:
               1. Run the tests: run_command(["mvn", "-q", "test"])
@@ -171,7 +143,7 @@ public class SystemPrompts {
             YOUR GOAL: Perform a final review of the repair. Check that the diff is
             minimal, correct, and does not introduce new issues.
 
-            """ + TOOL_DOCS + """
+            {{TOOL_DOCS}}
 
             WORKFLOW:
               1. Run git_diff("HEAD") to see the full change.
