@@ -38,6 +38,14 @@ public class Job {
     @Column(name = "workspace_ref")
     private String workspaceRef;
 
+    // Backtracking counters (§4.2, added by V2 migration).
+    @Column(name = "consecutive_test_failures", nullable = false)
+    private int consecutiveTestFailures = 0;
+
+    // Total number of PLAN→IMPLEMENT→TEST cycles attempted (informational).
+    @Column(name = "iteration_count", nullable = false)
+    private int iterationCount = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -81,4 +89,11 @@ public class Job {
 
     public void setState(JobState state)               { this.state = state; }
     public void setWorkspaceRef(String workspaceRef)   { this.workspaceRef = workspaceRef; }
+
+    public int  getConsecutiveTestFailures()           { return consecutiveTestFailures; }
+    public int  getIterationCount()                    { return iterationCount; }
+
+    public void incrementConsecutiveTestFailures()     { this.consecutiveTestFailures++; }
+    public void setConsecutiveTestFailures(int v)      { this.consecutiveTestFailures = v; }
+    public void setIterationCount(int v)               { this.iterationCount = v; }
 }

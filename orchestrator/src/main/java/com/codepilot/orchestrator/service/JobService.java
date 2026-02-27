@@ -124,8 +124,13 @@ public class JobService {
     /**
      * Mark a step as DONE and advance the pipeline.
      *
-     * If there is a next role in the pipeline, create its Step (PENDING)
-     * and update the Job state. If this was the last role, mark the Job DONE.
+     * For TESTER steps that report tests_passed=false, this method implements
+     * the backtracking logic (§4.2):
+     *   - First failure:  re-queue a new PLANNER step and return to PLAN state.
+     *   - Second failure: backtrack budget exhausted, mark job FAILED.
+     * The consecutive_test_failures counter resets whenever TESTER passes.
+     *
+     * For all other roles, the pipeline advances normally.
      */
     @Transactional
     public void completeStep(Step step, String resultJson) {
@@ -135,10 +140,39 @@ public class JobService {
         stepRepo.save(step);
 
         Job job = jobRepo.findById(step.getJob().getId()).orElseThrow();
+
+        // ── Backtracking (§4.2) ──────────────────────────────────────────────
+        if (step.getRole() == AgentRole.TESTER && !parseTestsPassed(resultJson)) {
+            job.incrementConsecutiveTestFailures();
+            if (job.getConsecutiveTestFailures() >= 2) {
+                // Two consecutive test failures → give up.
+                job.setState(JobState.FAILED);
+                jobRepo.save(job);
+                log.error("Job {} FAILED: {} consecutive TESTER failures, backtrack budget exhausted.",
+                        job.getId(), job.getConsecutiveTestFailures());
+                cleanupWorkspace(job);
+            } else {
+                // First failure → backtrack: re-queue PLANNER with failure context in priorResults.
+                job.setIterationCount(job.getIterationCount() + 1);
+                job.setState(JobState.PLAN);
+                jobRepo.save(job);
+                stepRepo.save(new Step(job, AgentRole.PLANNER));
+                log.warn("Job {} backtracking to PLAN (iteration={}, consecutiveTestFailures={})",
+                        job.getId(), job.getIterationCount(), job.getConsecutiveTestFailures());
+            }
+            return;
+        }
+
+        // TESTER passed — reset the failure streak.
+        if (step.getRole() == AgentRole.TESTER) {
+            job.setConsecutiveTestFailures(0);
+        }
+
+        // ── Normal pipeline advance ──────────────────────────────────────────
         AgentRole nextRole = nextRole(step.getRole());
 
         if (nextRole == null) {
-            // All five roles finished — job is complete.
+            // All roles finished — job is complete.
             job.setState(JobState.DONE);
             jobRepo.save(job);
             log.info("Job {} DONE", job.getId());
@@ -228,12 +262,20 @@ public class JobService {
     /**
      * Collect all DONE step results for a job, keyed by role.
      * Used by AgentLoop to build context for subsequent agents.
+     *
+     * After backtracking there can be multiple DONE steps with the same role
+     * (e.g. two PLANNER steps). We keep the latest result per role so agents
+     * always see the most recent prior work.
      */
     @Transactional(readOnly = true)
     public Map<AgentRole, String> completedResults(UUID jobId) {
         return stepRepo.findByJobIdOrderByCreatedAtAsc(jobId).stream()
                 .filter(s -> s.getState() == StepState.DONE && s.getResultJson() != null)
-                .collect(Collectors.toMap(Step::getRole, Step::getResultJson));
+                .collect(Collectors.toMap(
+                        Step::getRole,
+                        Step::getResultJson,
+                        (existing, replacement) -> replacement   // keep latest per role
+                ));
     }
 
     // ------------------------------------------------------------------
@@ -271,5 +313,18 @@ public class JobService {
             case TESTER       -> JobState.TEST;
             case REVIEWER     -> JobState.REVIEW;
         };
+    }
+
+    /**
+     * Check whether the TESTER's result JSON reports tests_passed=true.
+     *
+     * We do a simple substring search rather than full JSON parsing to
+     * avoid a Jackson dependency in the service layer. The TESTER prompt
+     * defines the exact field name so the format is controlled.
+     */
+    private static boolean parseTestsPassed(String resultJson) {
+        if (resultJson == null || resultJson.isBlank()) return false;
+        return resultJson.contains("\"tests_passed\":true")
+            || resultJson.contains("\"tests_passed\": true");
     }
 }

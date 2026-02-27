@@ -172,8 +172,19 @@ public class AgentLoop {
         sb.append(switch (role) {
             case REPO_MAPPER ->
                 "Explore the repository in the workspace and produce the required JSON summary.";
-            case PLANNER ->
-                "Using the repository map above, analyse the codebase and produce a repair plan.";
+            case PLANNER -> {
+                // Detect backtrack scenario: a prior TESTER step reported tests_passed=false.
+                String testerResult = priorResults.get(AgentRole.TESTER);
+                boolean isReplan = testerResult != null &&
+                        (testerResult.contains("\"tests_passed\":false") ||
+                         testerResult.contains("\"tests_passed\": false"));
+                if (isReplan) {
+                    yield "The previous implementation FAILED the tests (see TESTER result above). " +
+                          "Study the failure details and produce a REVISED repair plan that correctly " +
+                          "addresses the root cause.";
+                }
+                yield "Using the repository map above, analyse the codebase and produce a repair plan.";
+            }
             case IMPLEMENTER ->
                 "Follow the repair plan above. Apply the changes using apply_patch() and verify.";
             case TESTER ->

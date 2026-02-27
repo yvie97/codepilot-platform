@@ -209,6 +209,84 @@ class JobServiceTest {
     }
 
     // ------------------------------------------------------------------
+    // completeStep() — backtracking (§4.2)
+    // ------------------------------------------------------------------
+
+    @Test
+    void completeStep_testerReportsTestsFailed_firstFailure_backtracksToPlan() {
+        Step step = stepForRole(AgentRole.TESTER);
+        Job job   = jobWithId();
+        // consecutiveTestFailures starts at 0 (first failure)
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+
+        service.completeStep(step, "{\"tests_passed\":false,\"failures\":2}");
+
+        // Job must backtrack to PLAN, not FAILED
+        assertThat(job.getState()).isEqualTo(JobState.PLAN);
+        assertThat(job.getConsecutiveTestFailures()).isEqualTo(1);
+        assertThat(job.getIterationCount()).isEqualTo(1);
+        // A new PLANNER step must be queued
+        ArgumentCaptor<Step> captor = ArgumentCaptor.forClass(Step.class);
+        verify(stepRepo, atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues())
+                .anyMatch(s -> s.getRole() == AgentRole.PLANNER && s.getState() == StepState.PENDING);
+        // Workspace must NOT be cleaned up yet
+        verify(workspaceClient, never()).deleteWorkspace(any());
+    }
+
+    @Test
+    void completeStep_testerReportsTestsFailed_secondConsecutiveFailure_jobFailed() {
+        Step step = stepForRole(AgentRole.TESTER);
+        Job job   = jobWithId();
+        job.incrementConsecutiveTestFailures();   // simulate first failure already recorded (= 1)
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+
+        service.completeStep(step, "{\"tests_passed\":false,\"failures\":3}");
+
+        // Second consecutive failure → backtrack budget exhausted → FAILED
+        assertThat(job.getState()).isEqualTo(JobState.FAILED);
+        assertThat(job.getConsecutiveTestFailures()).isEqualTo(2);
+        // Workspace must be cleaned up
+        verify(workspaceClient).deleteWorkspace(job.getWorkspaceRef());
+    }
+
+    @Test
+    void completeStep_testerReportsTestsPassed_resetsCounterAndAdvancesToReviewer() {
+        Step step = stepForRole(AgentRole.TESTER);
+        Job job   = jobWithId();
+        job.incrementConsecutiveTestFailures();   // prior failure on record (= 1)
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+
+        service.completeStep(step, "{\"tests_passed\":true,\"failures\":0}");
+
+        // Counter must be reset to 0
+        assertThat(job.getConsecutiveTestFailures()).isEqualTo(0);
+        // Pipeline advances to REVIEW
+        assertThat(job.getState()).isEqualTo(JobState.REVIEW);
+        ArgumentCaptor<Step> captor = ArgumentCaptor.forClass(Step.class);
+        verify(stepRepo, atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues())
+                .anyMatch(s -> s.getRole() == AgentRole.REVIEWER && s.getState() == StepState.PENDING);
+    }
+
+    @Test
+    void completeStep_testerReportsTestsFailed_spacedJson_alsoDetected() {
+        // Both `"tests_passed":false` and `"tests_passed": false` (with space) must be caught
+        Step step = stepForRole(AgentRole.TESTER);
+        Job job   = jobWithId();
+        when(jobRepo.findById(any())).thenReturn(Optional.of(job));
+        when(stepRepo.save(any())).thenReturn(step);
+
+        service.completeStep(step, "{\"tests_passed\": false, \"failures\": 1}");
+
+        assertThat(job.getState()).isEqualTo(JobState.PLAN);
+        assertThat(job.getConsecutiveTestFailures()).isEqualTo(1);
+    }
+
+    // ------------------------------------------------------------------
     // recoverStalledSteps()
     // ------------------------------------------------------------------
 
