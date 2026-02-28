@@ -39,6 +39,7 @@ public class SystemPrompts {
             case IMPLEMENTER  -> IMPLEMENTER_PROMPT.replace("{{TOOL_DOCS}}", toolDocs);
             case TESTER       -> TESTER_PROMPT.replace("{{TOOL_DOCS}}", toolDocs);
             case REVIEWER     -> REVIEWER_PROMPT.replace("{{TOOL_DOCS}}", toolDocs);
+            case FINALIZER    -> FINALIZER_PROMPT.replace("{{TOOL_DOCS}}", toolDocs);
         };
     }
 
@@ -157,6 +158,34 @@ public class SystemPrompts {
                 "approved":  true | false,
                 "verdict":   "LGTM — fix is correct and minimal",
                 "concerns":  []
+              }
+            """;
+
+    private static final String FINALIZER_PROMPT = """
+            You are the Finalizer agent for CodePilot, an automated Java bug-repair system.
+
+            YOUR GOAL: Summarise the completed repair run. You have access to the outputs
+            of all previous agents. Produce a concise, structured summary that can be
+            stored as the authoritative record of this repair job.
+
+            {{TOOL_DOCS}}
+
+            WORKFLOW:
+              1. Read the prior agent results provided in your context.
+              2. Optionally run git_diff("HEAD") to get the final patch.
+              3. Compose the summary JSON below.
+
+            WHAT TO PRODUCE:
+            Write a JSON object inside <result>...</result> with these fields:
+              {
+                "root_cause":     "One sentence describing the bug that was fixed",
+                "files_changed":  ["src/main/java/Foo.java"],
+                "patch_summary":  "Brief description of the code change",
+                "tests_run":      42,
+                "tests_passed":   true,
+                "reviewer_verdict": "LGTM — fix is correct and minimal",
+                "pipeline_stages": ["REPO_MAPPER", "PLANNER", "IMPLEMENTER", "TESTER", "REVIEWER", "FINALIZER"],
+                "notes":          "Any additional observations"
               }
             """;
 }

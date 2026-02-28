@@ -256,6 +256,9 @@ public class AgentLoop {
                 "Run the test suite with run_command([\"mvn\", \"-q\", \"test\"]) and report results.";
             case REVIEWER ->
                 "Review the repair. Run git_diff(\"HEAD\") and assess the changes.";
+            case FINALIZER ->
+                "All pipeline stages are complete. Summarise the repair run using the prior agent " +
+                "results above. Optionally run git_diff(\"HEAD\") to confirm the final patch.";
         });
 
         return sb.toString();

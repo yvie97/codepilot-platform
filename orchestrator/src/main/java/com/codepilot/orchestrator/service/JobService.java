@@ -36,7 +36,8 @@ public class JobService {
             AgentRole.PLANNER,
             AgentRole.IMPLEMENTER,
             AgentRole.TESTER,
-            AgentRole.REVIEWER
+            AgentRole.REVIEWER,
+            AgentRole.FINALIZER
     );
 
     private final JobRepository     jobRepo;
@@ -346,6 +347,7 @@ public class JobService {
             case IMPLEMENTER  -> JobState.IMPLEMENT;
             case TESTER       -> JobState.TEST;
             case REVIEWER     -> JobState.REVIEW;
+            case FINALIZER    -> JobState.FINALIZE;
         };
     }
 
