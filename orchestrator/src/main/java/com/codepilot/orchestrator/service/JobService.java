@@ -167,7 +167,9 @@ public class JobService {
                         "reason", "test_budget_exhausted").increment();
                 cleanupWorkspace(job);
             } else {
-                // First failure → backtrack: re-queue PLANNER with failure context in priorResults.
+                // First failure → backtrack: restore workspace so PLANNER sees clean code,
+                // then re-queue PLANNER with failure context in priorResults.
+                restoreSnapshotIfPresent(job);
                 job.setIterationCount(job.getIterationCount() + 1);
                 job.setState(JobState.PLAN);
                 jobRepo.save(job);
@@ -239,6 +241,19 @@ public class JobService {
             cleanupWorkspace(job);
         }
         stepRepo.save(step);
+    }
+
+    /**
+     * Persist the snapshot key for a job (§8.4).
+     *
+     * Called by AgentLoop just before the IMPLEMENTER loop starts.
+     * Stored on the Job so that JobService can use it during backtracking.
+     */
+    @Transactional
+    public void saveSnapshotKey(UUID jobId, String snapshotKey) {
+        Job job = jobRepo.findById(jobId).orElseThrow();
+        job.setSnapshotKey(snapshotKey);
+        jobRepo.save(job);
     }
 
     /**
@@ -332,6 +347,27 @@ public class JobService {
         } catch (Exception e) {
             log.warn("Could not delete workspace {} for job {} — manual cleanup may be needed: {}",
                     job.getWorkspaceRef(), job.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Restore the workspace to the pre-IMPLEMENTER snapshot, if one exists.
+     *
+     * Called inside @Transactional methods — executor errors are swallowed
+     * so a failed restore never rolls back the DB transaction.  A missed
+     * restore means PLANNER sees a partially-modified workspace, which is
+     * sub-optimal but recoverable (PLANNER can re-read files).
+     */
+    private void restoreSnapshotIfPresent(Job job) {
+        String key = job.getSnapshotKey();
+        if (key == null) return;
+        try {
+            workspaceClient.restoreWorkspace(job.getWorkspaceRef(), key);
+            log.info("Workspace {} restored to snapshot '{}' for job {}",
+                    job.getWorkspaceRef(), key, job.getId());
+        } catch (Exception e) {
+            log.warn("Could not restore snapshot '{}' for job {} — PLANNER will see modified files: {}",
+                    key, job.getId(), e.getMessage());
         }
     }
 

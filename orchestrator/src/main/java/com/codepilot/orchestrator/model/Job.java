@@ -38,6 +38,11 @@ public class Job {
     @Column(name = "workspace_ref")
     private String workspaceRef;
 
+    // Snapshot key set just before IMPLEMENTER runs (§8.4).
+    // Used to restore the workspace on backtrack or IMPLEMENTER retry.
+    @Column(name = "snapshot_key")
+    private String snapshotKey;
+
     // Backtracking counters (§4.2, added by V2 migration).
     @Column(name = "consecutive_test_failures", nullable = false)
     private int consecutiveTestFailures = 0;
@@ -89,6 +94,8 @@ public class Job {
 
     public void setState(JobState state)               { this.state = state; }
     public void setWorkspaceRef(String workspaceRef)   { this.workspaceRef = workspaceRef; }
+    public String getSnapshotKey()                     { return snapshotKey; }
+    public void setSnapshotKey(String snapshotKey)     { this.snapshotKey = snapshotKey; }
 
     public int  getConsecutiveTestFailures()           { return consecutiveTestFailures; }
     public int  getIterationCount()                    { return iterationCount; }

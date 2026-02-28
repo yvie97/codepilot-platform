@@ -99,6 +99,14 @@ public class AgentLoop {
         Map<AgentRole, String> priorResults =
                 jobService.completedResults(step.getJob().getId());
 
+        // Snapshot / restore before IMPLEMENTER (§8.4).
+        // We snapshot the workspace so we can roll back if tests fail later.
+        // If this is a retry (attempt > 0) or a second iteration (snapshotKey
+        // already set), restore to the clean pre-implementation state first.
+        if (step.getRole() == AgentRole.IMPLEMENTER) {
+            snapshotBeforeImplementer(step, workspaceRef);
+        }
+
         // Build or restore conversation history (§5.3 — crash recovery).
         // If this step was previously interrupted, resume from the saved history
         // instead of restarting from scratch.
@@ -211,6 +219,39 @@ public class AgentLoop {
             return result.toObservation();
         } catch (Exception e) {
             return "error_type: EXECUTOR_UNREACHABLE\nstderr: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Snapshot the workspace before an IMPLEMENTER run (§8.4).
+     *
+     * If a snapshot key already exists on the job (retry or second iteration),
+     * restore to that snapshot first so IMPLEMENTER always starts from a clean
+     * pre-implementation state.  Then take a fresh snapshot and save its key.
+     *
+     * Failures here are logged but not fatal — the worst outcome is that a
+     * retry starts from a partially-modified workspace rather than a clean one.
+     */
+    private void snapshotBeforeImplementer(Step step, String workspaceRef) {
+        String existingKey = step.getJob().getSnapshotKey();
+        if (existingKey != null) {
+            try {
+                executor.restoreWorkspace(workspaceRef, existingKey);
+                log.info("Restored workspace to snapshot '{}' before IMPLEMENTER retry (step {}, attempt {})",
+                        existingKey, step.getId(), step.getAttempt());
+            } catch (Exception e) {
+                log.warn("Could not restore snapshot '{}' before IMPLEMENTER — starting from current state: {}",
+                        existingKey, e.getMessage());
+            }
+        }
+        try {
+            String newKey = executor.snapshotWorkspace(workspaceRef);
+            jobService.saveSnapshotKey(step.getJob().getId(), newKey);
+            log.info("Snapshot '{}' taken before IMPLEMENTER (step {}, attempt {})",
+                    newKey, step.getId(), step.getAttempt());
+        } catch (Exception e) {
+            log.warn("Could not snapshot workspace before IMPLEMENTER — rollback unavailable: {}",
+                    e.getMessage());
         }
     }
 
