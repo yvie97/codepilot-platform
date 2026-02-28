@@ -19,6 +19,7 @@ spec:
       labels:
         app: executor
     spec:
+      serviceAccountName: executor       # defined in rbac.yaml (no K8s API permissions)
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000          # matches the 'executor' user in the Dockerfile

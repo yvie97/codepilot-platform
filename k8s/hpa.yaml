@@ -1,0 +1,55 @@
+# HorizontalPodAutoscaler — auto-scale the orchestrator based on CPU load.
+#
+# Why orchestrator only?
+#   - executor: each pod holds in-memory workspace state; scaling horizontally
+#     would require a shared filesystem (NFS/PVC). Kept at 1 replica for now.
+#   - postgres: StatefulSet with persistent storage — not a candidate for HPA.
+#
+# Scaling policy:
+#   minReplicas = 1  — zero-scale is not needed; always keep one warm
+#   maxReplicas = 4  — four workers handle 4 concurrent jobs comfortably
+#   target CPU = 70% — scale up before the pod becomes saturated
+#
+# The metrics-server add-on must be installed in the cluster for HPA to work.
+# On minikube: `minikube addons enable metrics-server`
+# On GKE/EKS:  it is enabled by default.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: orchestrator
+  namespace: codepilot
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: orchestrator
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    # Scale up quickly when load spikes (agent jobs are latency-sensitive)
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type:          Pods
+          value:         2        # add at most 2 pods per scaling event
+          periodSeconds: 60
+    # Scale down slowly to avoid thrashing during intermittent load
+    scaleDown:
+      stabilizationWindowSeconds: 300   # wait 5 min before removing a pod
+      policies:
+        - type:          Pods
+          value:         1        # remove at most 1 pod per scaling event
+          periodSeconds: 120

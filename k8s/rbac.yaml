@@ -1,0 +1,73 @@
+# RBAC — minimal service accounts for orchestrator and executor.
+#
+# Neither pod needs to call the Kubernetes API, so we bind them to
+# an empty (no-op) Role rather than using the default service account.
+# This satisfies the principle of least privilege: a compromised pod
+# cannot query or mutate any cluster resource.
+#
+# ServiceAccount → bound to pods via spec.serviceAccountName
+# Role           → empty rules list (zero API permissions)
+# RoleBinding    → links the SA to the empty Role
+
+# ── Orchestrator ──────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orchestrator
+  namespace: codepilot
+  labels:
+    app: orchestrator
+automountServiceAccountToken: false   # don't mount the K8s API token into the pod
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: orchestrator
+  namespace: codepilot
+rules: []   # no Kubernetes API permissions needed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: orchestrator
+  namespace: codepilot
+subjects:
+  - kind: ServiceAccount
+    name: orchestrator
+    namespace: codepilot
+roleRef:
+  kind: Role
+  name: orchestrator
+  apiGroup: rbac.authorization.k8s.io
+
+# ── Executor ──────────────────────────────────────────────────────────────────
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: executor
+  namespace: codepilot
+  labels:
+    app: executor
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: executor
+  namespace: codepilot
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: executor
+  namespace: codepilot
+subjects:
+  - kind: ServiceAccount
+    name: executor
+    namespace: codepilot
+roleRef:
+  kind: Role
+  name: executor
+  apiGroup: rbac.authorization.k8s.io

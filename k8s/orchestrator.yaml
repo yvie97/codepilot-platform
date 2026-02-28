@@ -21,6 +21,7 @@ spec:
         prometheus.io/port:   "8080"
         prometheus.io/path:   "/actuator/prometheus"
     spec:
+      serviceAccountName: orchestrator   # defined in rbac.yaml (no K8s API permissions)
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001          # matches the 'orchestrator' user in the Dockerfile

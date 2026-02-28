@@ -1,0 +1,166 @@
+# NetworkPolicy — zero-trust traffic rules for the codepilot namespace.
+#
+# Topology:
+#   [Internet] → orchestrator:8080
+#   orchestrator → executor:8001
+#   orchestrator → postgres:5432
+#   executor     ← orchestrator only (no egress beyond Anthropic API)
+#   postgres     ← orchestrator only
+#
+# Default posture: deny all ingress and egress for every pod in the namespace,
+# then selectively open only the paths listed above.  A CNI plugin that supports
+# NetworkPolicy (Calico, Cilium, Weave, etc.) is required for these rules to
+# take effect.
+
+# ── Default-deny all ingress and egress in the namespace ─────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: codepilot
+spec:
+  podSelector: {}      # matches every pod in the namespace
+  policyTypes:
+    - Ingress
+    - Egress
+
+# ── Orchestrator ──────────────────────────────────────────────────────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orchestrator-ingress
+  namespace: codepilot
+spec:
+  podSelector:
+    matchLabels:
+      app: orchestrator
+  policyTypes:
+    - Ingress
+  ingress:
+    # Accept external HTTP traffic on port 8080 from anywhere.
+    # (The LoadBalancer Service proxies external requests into this port.)
+    - ports:
+        - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orchestrator-egress
+  namespace: codepilot
+spec:
+  podSelector:
+    matchLabels:
+      app: orchestrator
+  policyTypes:
+    - Egress
+  egress:
+    # Talk to the executor service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: executor
+      ports:
+        - port: 8001
+    # Talk to PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+    # Talk to the Anthropic API (and any other external HTTPS endpoints)
+    # Port 443 egress to all destinations — necessary for the Claude API.
+    - ports:
+        - port: 443
+    # DNS resolution (kube-dns lives in kube-system on port 53)
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+# ── Executor ──────────────────────────────────────────────────────────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: executor-ingress
+  namespace: codepilot
+spec:
+  podSelector:
+    matchLabels:
+      app: executor
+  policyTypes:
+    - Ingress
+  ingress:
+    # Accept requests only from the orchestrator pod
+    - from:
+        - podSelector:
+            matchLabels:
+              app: orchestrator
+      ports:
+        - port: 8001
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: executor-egress
+  namespace: codepilot
+spec:
+  podSelector:
+    matchLabels:
+      app: executor
+  policyTypes:
+    - Egress
+  egress:
+    # git clone / mvn dependency download over HTTPS
+    - ports:
+        - port: 443
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress
+  namespace: codepilot
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    # Accept connections only from the orchestrator pod
+    - from:
+        - podSelector:
+            matchLabels:
+              app: orchestrator
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-egress
+  namespace: codepilot
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Egress
+  egress:
+    # DNS only — postgres does not initiate outbound connections
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

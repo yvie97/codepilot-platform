@@ -15,6 +15,9 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - secret.yaml       # replace placeholder values before applying!
+  - rbac.yaml
+  - networkpolicy.yaml
   - postgres.yaml
   - executor.yaml
   - orchestrator.yaml
+  - hpa.yaml
