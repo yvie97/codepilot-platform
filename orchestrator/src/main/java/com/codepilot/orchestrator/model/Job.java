@@ -43,6 +43,14 @@ public class Job {
     @Column(name = "snapshot_key")
     private String snapshotKey;
 
+    // Task context passed in at submission time (optional).
+    // Included in REPO_MAPPER and PLANNER prompts to guide the agents.
+    @Column(name = "task_description", columnDefinition = "TEXT")
+    private String taskDescription;
+
+    @Column(name = "failing_test")
+    private String failingTest;
+
     // Backtracking counters (§4.2, added by V2 migration).
     @Column(name = "consecutive_test_failures", nullable = false)
     private int consecutiveTestFailures = 0;
@@ -96,6 +104,10 @@ public class Job {
     public void setWorkspaceRef(String workspaceRef)   { this.workspaceRef = workspaceRef; }
     public String getSnapshotKey()                     { return snapshotKey; }
     public void setSnapshotKey(String snapshotKey)     { this.snapshotKey = snapshotKey; }
+    public String getTaskDescription()                 { return taskDescription; }
+    public void setTaskDescription(String v)           { this.taskDescription = v; }
+    public String getFailingTest()                     { return failingTest; }
+    public void setFailingTest(String v)               { this.failingTest = v; }
 
     public int  getConsecutiveTestFailures()           { return consecutiveTestFailures; }
     public int  getIterationCount()                    { return iterationCount; }

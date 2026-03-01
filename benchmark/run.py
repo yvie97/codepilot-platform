@@ -34,13 +34,16 @@ JOB_TIMEOUT_SEC      = 7200   # 2 hours max per job
 # API helpers
 # ---------------------------------------------------------------------------
 
-def submit_job(base_url: str, repo_url: str, git_ref: str) -> str:
+def submit_job(base_url: str, repo_url: str, git_ref: str,
+               task_description: str | None = None,
+               failing_test: str | None = None) -> str:
     """POST /jobs and return the new job UUID."""
-    resp = requests.post(
-        f"{base_url}/jobs",
-        json={"repoUrl": repo_url, "gitRef": git_ref},
-        timeout=30,
-    )
+    payload: dict = {"repoUrl": repo_url, "gitRef": git_ref}
+    if task_description:
+        payload["taskDescription"] = task_description
+    if failing_test:
+        payload["failingTest"] = failing_test
+    resp = requests.post(f"{base_url}/jobs", json=payload, timeout=30)
     resp.raise_for_status()
     return resp.json()["id"]
 
@@ -119,9 +122,11 @@ def main():
 
         print(f"  repo={repo_url}  ref={task['git_ref']}")
 
-        # Submit
+        # Submit — include task description and failing test so agents know what to fix
         try:
-            job_id = submit_job(base_url, repo_url, task["git_ref"])
+            job_id = submit_job(base_url, repo_url, task["git_ref"],
+                                task_description=task.get("description"),
+                                failing_test=task.get("failing_test"))
         except Exception as e:
             print(f"  ERROR submitting: {e}")
             results.append({"task_id": task_id, "job_id": None,

@@ -27,5 +27,9 @@ CodePilot-design.md
 # Benchmark sub-repo (has its own git, tracked separately)
 benchmark/java-bugs/
 
+# Benchmark run artifacts (generated, not source-controlled)
+benchmark/results.json
+benchmark/eval_report.json
+
 # macOS
 .DS_Store

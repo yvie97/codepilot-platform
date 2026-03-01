@@ -1,6 +1,6 @@
 {
-  "version": "1.1",
-  "description": "CodePilot benchmark — Java bug-fix tasks used to measure Pass@1. Tasks BENCH-1 through BENCH-4 use a purpose-built micro-library (benchmark/java-bugs) whose bugs and tests are fully verified. Tasks LANG-1 and LANG-2 reference Apache Commons Lang release tags for real-world coverage. NOTE: before running on K8s, push benchmark/java-bugs to GitHub and update the repo_url fields marked with PLACEHOLDER.",
+  "version": "1.2",
+  "description": "CodePilot benchmark — Java bug-fix tasks used to measure Pass@1. Tasks BENCH-1 through BENCH-4 use a purpose-built micro-library (benchmark/java-bugs) whose bugs and tests are fully verified. LANG-1804 is a real Apache Commons Lang bug: the bench branch contains the buggy production code plus the failing regression tests, so mvn test fails out-of-the-box and CodePilot must find and apply the fix.",
   "notes": [
     "git_ref: release tag (shallow clone) or full 40-char SHA (full clone + checkout).",
     "failing_test: Maven Surefire filter — mvn test -Dtest=<value>.",
@@ -66,32 +66,21 @@
       "difficulty": "easy"
     },
     {
-      "id": "LANG-1",
+      "id": "LANG-1804",
       "project": "commons-lang",
-      "repo_url": "https://github.com/apache/commons-lang.git",
-      "git_ref": "rel/commons-lang-3.12.0",
-      "description": "StringUtils.rotate(String, int) — explore the implementation and its test coverage, identify any edge-case behaviour the tests do not yet exercise, and either fix a latent defect or harden the implementation against documented-but-untested inputs.",
-      "affected_file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
-      "affected_method": "rotate",
-      "failing_test": "StringUtilsTest#testRotate_StringInt",
-      "test_command": ["mvn", "-q", "test", "-Dtest=StringUtilsTest#testRotate_StringInt"],
-      "bug_category": "boundary",
-      "difficulty": "medium",
-      "note": "Exploratory task — the test may pass at this tag; the agent is evaluated on code quality and test coverage improvement."
-    },
-    {
-      "id": "LANG-2",
-      "project": "commons-lang",
-      "repo_url": "https://github.com/apache/commons-lang.git",
-      "git_ref": "rel/commons-lang-3.11",
-      "description": "NumberUtils.createNumber(String) throws NumberFormatException instead of returning null when given a trailing-decimal string like '1.1L'. Investigate the implementation and fix it to match the documented null-return contract for unparseable input.",
-      "affected_file": "src/main/java/org/apache/commons/lang3/math/NumberUtils.java",
-      "affected_method": "createNumber",
-      "failing_test": "NumberUtilsTest#testCreateNumber",
-      "test_command": ["mvn", "-q", "test", "-Dtest=NumberUtilsTest#testCreateNumber"],
+      "repo_url": "https://github.com/yvie97/commons-lang.git",
+      "git_ref": "e04fac70d1b76e0be2b20c22745887f3f5f5c1b2",
+      "description": "CharSet.getInstance(String...) returns null instead of CharSet.EMPTY when called with a null argument, causing NullPointerException in callers that expect a non-null CharSet. Fix the null-guard in CharSet.java to return EMPTY instead of null.",
+      "affected_file": "src/main/java/org/apache/commons/lang3/CharSet.java",
+      "affected_method": "getInstance",
+      "failing_test": "CharSetTest#testGetInstance",
+      "test_command": ["mvn", "-q", "test", "-Dtest=CharSetTest"],
       "bug_category": "null_handling",
-      "difficulty": "medium",
-      "note": "Exploratory task — verify whether the test fails at this tag before counting it in Pass@1 results."
+      "difficulty": "easy",
+      "jira": "LANG-1804",
+      "upstream_repo": "https://github.com/apache/commons-lang.git",
+      "upstream_bug_commit": "938587a77f39e03121ba6ca76c613055fd7bf21b",
+      "upstream_fix_commit": "b8d382039a850dff10a90c9abfbbf62228fd8fd1"
     }
   ]
 }

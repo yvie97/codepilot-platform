@@ -53,7 +53,7 @@ class JobServiceTest {
         when(jobRepo.save(any())).thenReturn(savedJob);
         doNothing().when(workspaceClient).createWorkspace(any(), any(), any());
 
-        Job result = service.submit("https://github.com/org/repo.git", "main");
+        Job result = service.submit("https://github.com/org/repo.git", "main", null, null);
 
         // Workspace must be created
         verify(workspaceClient).createWorkspace(any(), eq("https://github.com/org/repo.git"), eq("main"));
@@ -72,7 +72,7 @@ class JobServiceTest {
         doThrow(new com.codepilot.orchestrator.executor.ExecutorException("clone failed", null))
                 .when(workspaceClient).createWorkspace(any(), any(), any());
 
-        Job result = service.submit("https://github.com/org/repo.git", "main");
+        Job result = service.submit("https://github.com/org/repo.git", "main", null, null);
 
         assertThat(result.getState()).isEqualTo(JobState.FAILED);
         verify(stepRepo, never()).save(any());   // no steps created on failure
@@ -84,7 +84,7 @@ class JobServiceTest {
         when(jobRepo.save(any())).thenReturn(savedJob);
         doNothing().when(workspaceClient).createWorkspace(any(), any(), any());
 
-        service.submit("https://github.com/org/repo.git", "main");
+        service.submit("https://github.com/org/repo.git", "main", null, null);
 
         assertThat(meterRegistry.counter("codepilot.jobs.submitted").count()).isEqualTo(1.0);
     }
@@ -96,7 +96,7 @@ class JobServiceTest {
         doThrow(new com.codepilot.orchestrator.executor.ExecutorException("clone failed", null))
                 .when(workspaceClient).createWorkspace(any(), any(), any());
 
-        service.submit("https://github.com/org/repo.git", "main");
+        service.submit("https://github.com/org/repo.git", "main", null, null);
 
         assertThat(meterRegistry.counter("codepilot.jobs.failed", "reason", "workspace_error").count())
                 .isEqualTo(1.0);

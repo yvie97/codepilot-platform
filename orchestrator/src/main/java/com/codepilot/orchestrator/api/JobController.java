@@ -49,7 +49,8 @@ public class JobController {
      */
     @PostMapping
     public ResponseEntity<JobResponse> submit(@RequestBody SubmitJobRequest req) {
-        Job job = jobService.submit(req.repoUrl(), req.gitRef());
+        Job job = jobService.submit(req.repoUrl(), req.gitRef(),
+                req.taskDescription(), req.failingTest());
         return ResponseEntity.status(HttpStatus.CREATED).body(JobResponse.from(job));
     }
 

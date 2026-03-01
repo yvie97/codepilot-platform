@@ -37,7 +37,7 @@ class JobControllerTest {
     @Test
     void submitJob_validRequest_returns201WithJobId() throws Exception {
         Job job = fakeJob(JobState.MAP_REPO);
-        when(jobService.submit(any(), any())).thenReturn(job);
+        when(jobService.submit(any(), any(), any(), any())).thenReturn(job);
 
         mockMvc.perform(post("/jobs")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -54,7 +54,7 @@ class JobControllerTest {
         // JobService handles the failure and returns a FAILED job — controller
         // always returns 201 because the job was created (even if it immediately fails).
         Job job = fakeJob(JobState.FAILED);
-        when(jobService.submit(any(), any())).thenReturn(job);
+        when(jobService.submit(any(), any(), any(), any())).thenReturn(job);
 
         mockMvc.perform(post("/jobs")
                         .contentType(MediaType.APPLICATION_JSON)

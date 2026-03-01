@@ -70,10 +70,17 @@ public class JobService {
      *  5. Update job state to MAP_REPO — the scheduler will pick it up
      */
     @Transactional
-    public Job submit(String repoUrl, String gitRef) {
+    public Job submit(String repoUrl, String gitRef,
+                      String taskDescription, String failingTest) {
         // Step 1-2: persist the job and set workspace_ref = job UUID
         Job job = jobRepo.save(new Job(repoUrl, gitRef));
         job.setWorkspaceRef(job.getId().toString());
+        if (taskDescription != null && !taskDescription.isBlank()) {
+            job.setTaskDescription(taskDescription);
+        }
+        if (failingTest != null && !failingTest.isBlank()) {
+            job.setFailingTest(failingTest);
+        }
 
         // Step 3: clone the repo into a workspace (may take 30-60 s for large repos)
         try {
