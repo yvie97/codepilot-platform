@@ -65,8 +65,10 @@ def parse_tester_result(result_json: str | None) -> tuple[bool, str]:
         except json.JSONDecodeError:
             return False, "unparseable resultJson"
 
-    if "passed" in data:
-        passed = bool(data["passed"])
+    # Accept both "passed" and "tests_passed" (agents use either field name)
+    passed_val = data.get("passed", data.get("tests_passed"))
+    if passed_val is not None:
+        passed = bool(passed_val)
         failures = data.get("failures", "?")
         errors   = data.get("errors", "?")
         tests    = data.get("tests_run", "?")

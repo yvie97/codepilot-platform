@@ -48,6 +48,13 @@ public class AgentLoop {
     // How often to update the heartbeat (every N turns).
     private static final int HEARTBEAT_EVERY = 3;
 
+    // Maximum characters returned per code-action observation.
+    // Large file reads on big repos (e.g. Apache Commons) can push the
+    // conversation history past Claude's 200k-token context limit.
+    // At ~4 chars/token, 8 000 chars ≈ 2 000 tokens per observation;
+    // over 20 turns that is at most ~40k tokens from observations alone.
+    private static final int MAX_OBSERVATION_CHARS = 8_000;
+
     private static final String MODEL = "claude-sonnet-4-6";
 
     private final ClaudeClient    claude;
@@ -120,6 +127,18 @@ public class AgentLoop {
             String response;
             try {
                 response = claude.complete(MODEL, history, systemPrompts.get(step.getRole()));
+            } catch (ClaudeClient.ClaudeApiException e) {
+                if (e.statusCode() == 429) {
+                    log.warn("Rate-limited by Claude API (turn {}/{}), backing off 60 s before retry…",
+                            turn, MAX_TURNS);
+                    try { Thread.sleep(60_000); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                    turn--;   // don't consume a turn for a transient rate-limit error
+                    continue;
+                }
+                jobService.failStep(step, "Claude API error: " + e.getMessage());
+                return;
             } catch (Exception e) {
                 jobService.failStep(step, "Claude API error: " + e.getMessage());
                 return;
@@ -182,16 +201,25 @@ public class AgentLoop {
         if (saved != null && !saved.isBlank()) {
             try {
                 List<Message> restored = objectMapper.readValue(saved, MSG_LIST_TYPE);
-                log.info("Step {} resuming from saved history ({} messages)",
-                        step.getId(), restored.size());
-                return restored;
+                // Rough token estimate: ~4 chars per token. If the saved history
+                // is already near the 200k-token limit, resuming would immediately
+                // fail again — restart from scratch instead.
+                long estimatedTokens = saved.length() / 4;
+                if (estimatedTokens > 150_000) {
+                    log.warn("Step {} saved history is ~{} tokens (too large to resume safely), starting fresh",
+                            step.getId(), estimatedTokens);
+                } else {
+                    log.info("Step {} resuming from saved history ({} messages, ~{} tokens)",
+                            step.getId(), restored.size(), estimatedTokens);
+                    return restored;
+                }
             } catch (Exception e) {
                 log.warn("Could not deserialise history for step {}, starting fresh: {}",
                         step.getId(), e.getMessage());
             }
         }
         List<Message> fresh = new ArrayList<>();
-        fresh.add(new Message("user", buildInitialPrompt(step.getRole(), priorResults)));
+        fresh.add(new Message("user", buildInitialPrompt(step, priorResults)));
         return fresh;
     }
 
@@ -216,7 +244,13 @@ public class AgentLoop {
     private String executeCode(String workspaceRef, String code) {
         try {
             ExecutionResult result = executor.runCode(workspaceRef, code, 300);
-            return result.toObservation();
+            String observation = result.toObservation();
+            if (observation.length() > MAX_OBSERVATION_CHARS) {
+                observation = observation.substring(0, MAX_OBSERVATION_CHARS)
+                        + "\n[... output truncated at " + MAX_OBSERVATION_CHARS
+                        + " chars to stay within context limits ...]";
+            }
+            return observation;
         } catch (Exception e) {
             return "error_type: EXECUTOR_UNREACHABLE\nstderr: " + e.getMessage();
         }
@@ -256,16 +290,33 @@ public class AgentLoop {
     }
 
     /**
-     * Build the first user message for a given agent role.
+     * Build the first user message for a given pipeline step.
      *
      * This message contains:
-     *  - What the agent needs to do (its specific task)
+     *  - Task context (description + failing test) if provided at submission time
      *  - The outputs of all previously completed agents (for context)
+     *  - The role-specific instruction for what to do next
      */
-    private String buildInitialPrompt(AgentRole role, Map<AgentRole, String> priorResults) {
-        StringBuilder sb = new StringBuilder();
+    private String buildInitialPrompt(Step step, Map<AgentRole, String> priorResults) {
+        AgentRole role = step.getRole();
+        String taskDescription = step.getJob().getTaskDescription();
+        String failingTest     = step.getJob().getFailingTest();
 
+        StringBuilder sb = new StringBuilder();
         sb.append("You are starting your task as the ").append(role).append(" agent.\n\n");
+
+        // Inject task context for the agents that need it most.
+        if ((role == AgentRole.REPO_MAPPER || role == AgentRole.PLANNER)
+                && (taskDescription != null || failingTest != null)) {
+            sb.append("=== TASK CONTEXT ===\n");
+            if (taskDescription != null) {
+                sb.append("Bug description : ").append(taskDescription).append("\n");
+            }
+            if (failingTest != null) {
+                sb.append("Failing test    : ").append(failingTest).append("\n");
+            }
+            sb.append("=== END TASK CONTEXT ===\n\n");
+        }
 
         if (!priorResults.isEmpty()) {
             sb.append("=== CONTEXT FROM PREVIOUS AGENTS ===\n");
@@ -277,7 +328,8 @@ public class AgentLoop {
 
         sb.append(switch (role) {
             case REPO_MAPPER ->
-                "Explore the repository in the workspace and produce the required JSON summary.";
+                "Explore the repository in the workspace and produce the required JSON summary. " +
+                "Focus your analysis on the area described in the task context above.";
             case PLANNER -> {
                 // Detect backtrack scenario: a prior TESTER step reported tests_passed=false.
                 String testerResult = priorResults.get(AgentRole.TESTER);
@@ -289,7 +341,8 @@ public class AgentLoop {
                           "Study the failure details and produce a REVISED repair plan that correctly " +
                           "addresses the root cause.";
                 }
-                yield "Using the repository map above, analyse the codebase and produce a repair plan.";
+                yield "Using the repository map and task context above, analyse the codebase " +
+                      "and produce a repair plan targeting the described bug.";
             }
             case IMPLEMENTER ->
                 "Follow the repair plan above. Apply the changes using apply_patch() and verify.";
