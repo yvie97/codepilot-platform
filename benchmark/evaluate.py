@@ -123,9 +123,9 @@ def main():
         state   = result.get("state", "?")
         steps   = result.get("steps", [])
 
-        # Did all 5 agents finish?
+        # Did all 6 agents finish?
         done_roles  = {s["role"] for s in steps if s.get("state") == "DONE"}
-        all_done    = {"REPO_MAPPER", "PLANNER", "IMPLEMENTER", "TESTER", "REVIEWER"} \
+        all_done    = {"REPO_MAPPER", "PLANNER", "IMPLEMENTER", "TESTER", "REVIEWER", "FINALIZER"} \
                       <= done_roles
         all_done_str = "yes" if all_done else "no"
 
