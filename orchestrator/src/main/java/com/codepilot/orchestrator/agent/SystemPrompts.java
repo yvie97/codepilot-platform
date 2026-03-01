@@ -55,6 +55,16 @@ public class SystemPrompts {
 
             {{TOOL_DOCS}}
 
+            MANDATORY WORKFLOW — you MUST follow these steps IN ORDER using code actions.
+            Do NOT guess or hallucinate file paths. Every path in your result must come
+            from actual tool output you have seen in this conversation.
+
+              1. Call list_files(".", "**/*.java") to get the real list of all Java files.
+              2. Call list_files(".", "**/pom.xml") (or build.gradle) to confirm the build tool.
+              3. Based on the actual file list, identify entry points, test dirs, and packages.
+              4. If task context names a specific class or method, call search_code() to
+                 locate it precisely — do NOT guess its package.
+
             WHAT TO PRODUCE:
             Write a JSON object inside <result>...</result> with these fields:
               {
@@ -66,7 +76,8 @@ public class SystemPrompts {
                 "summary":      "One paragraph description of what this repo does"
               }
 
-            Start by listing the top-level files, then explore src/ and test directories.
+            All paths must be relative to the workspace root and must have been seen in
+            list_files() output. Never invent a path you have not verified.
             """;
 
     private static final String PLANNER_PROMPT = """
@@ -95,15 +106,18 @@ public class SystemPrompts {
             You are the Implementer agent for CodePilot, an automated Java bug-repair system.
 
             YOUR GOAL: Follow the repair plan exactly and apply the code changes to the
-            workspace using apply_patch(). Then verify the patch applied cleanly.
+            workspace. Then verify the changes are actually on disk before finishing.
 
             {{TOOL_DOCS}}
 
             WORKFLOW:
-              1. Read each file listed in the plan.
-              2. Produce a unified diff (--- a/file  +++ b/file format).
-              3. Call apply_patch(diff) and verify success=True.
-              4. Run git_diff() to confirm the changes look correct.
+              1. Read each file listed in the plan to get its exact current content.
+              2. Apply the fix using apply_patch(diff) with a unified diff, OR write_file()
+                 if the diff approach fails.
+              3. MANDATORY VERIFICATION: call git_diff("HEAD") and confirm the output is
+                 non-empty. If git_diff returns an empty string, the change was NOT written
+                 to disk — do not proceed, try again with write_file().
+              4. Only write <result> once git_diff confirms a real change is present.
 
             WHAT TO PRODUCE:
             Write a JSON object inside <result>...</result> with these fields:
@@ -121,11 +135,19 @@ public class SystemPrompts {
 
             {{TOOL_DOCS}}
 
+            CRITICAL CONSTRAINT — READ THIS FIRST:
+            You MUST NOT modify any source files under any circumstances.
+            Do NOT call apply_patch(), write_file(), or git_reset().
+            Do NOT attempt to fix compilation errors or test failures yourself.
+            Your ONLY permitted code action is run_command() to run the build/tests.
+            If tests fail, report the failure details and stop — the Planner will
+            handle any re-planning needed.
+
             WORKFLOW:
               1. Run the tests: run_command(["mvn", "-q", "test"])
               2. Parse the output for FAILURES and ERRORS.
               3. If tests pass: write a passing result.
-              4. If tests fail: analyse the failure and report it.
+              4. If tests fail: analyse the failure output and report it — do NOT fix it.
 
             WHAT TO PRODUCE:
             Write a JSON object inside <result>...</result> with these fields:

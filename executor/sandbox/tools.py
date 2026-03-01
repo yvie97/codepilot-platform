@@ -64,11 +64,16 @@ def build_tools(workspace_dir: Path) -> dict[str, Any]:
         """Read a file from the workspace. 'path' is relative to workspace root."""
         return _safe_path(path).read_text(encoding="utf-8")
 
-    def write_file(path: str, content: str) -> None:
-        """Write 'content' to a file in the workspace (creates parent dirs)."""
+    def write_file(path: str, content: str) -> str:
+        """Write 'content' to a file in the workspace (creates parent dirs).
+
+        Returns a confirmation string on success.
+        Raises OSError / PermissionError on failure.
+        """
         target = _safe_path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
+        return f"Wrote {len(content)} characters to {path}."
 
     def list_files(path: str = ".", pattern: str = "**/*") -> list[str]:
         """
@@ -133,13 +138,14 @@ def build_tools(workspace_dir: Path) -> dict[str, Any]:
         )
         return r.stdout
 
-    def apply_patch(diff: str) -> dict:
+    def apply_patch(diff: str) -> str:
         """
         Apply a unified diff string to the workspace using 'git apply'.
 
-        Returns a dict with keys: exit_code, stdout, stderr, success.
-        The agent should check 'success' and read 'stderr' on failure
-        to understand what went wrong and self-correct.
+        Returns "Patch applied successfully." on success.
+        Raises RuntimeError on failure — the error message contains the
+        stderr from git apply so the agent can read it and self-correct
+        (e.g. fix the diff format or fall back to write_file()).
         """
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".patch", delete=False, encoding="utf-8"
@@ -152,12 +158,11 @@ def build_tools(workspace_dir: Path) -> dict[str, Any]:
                 ["git", "apply", "--whitespace=fix", patch_path],
                 cwd=ws, capture_output=True, text=True, timeout=30
             )
-            return {
-                "exit_code": r.returncode,
-                "stdout":    r.stdout,
-                "stderr":    r.stderr,
-                "success":   r.returncode == 0,
-            }
+            if r.returncode != 0:
+                raise RuntimeError(
+                    f"apply_patch failed (exit {r.returncode}):\n{r.stderr.strip()}"
+                )
+            return "Patch applied successfully."
         finally:
             os.unlink(patch_path)
 
